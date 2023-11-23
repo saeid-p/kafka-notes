@@ -21,7 +21,7 @@ describe("Kafka basic commands.", () => {
     expect(response).toBeTruthy();
   });
 
-  it("Should create a document.", async () => {
+  it("Should consume messages.", async () => {
     const consumer = client.consumer({ groupId: CONSUMER_NAME });
 
     await consumer.connect();
