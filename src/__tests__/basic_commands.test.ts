@@ -1,3 +1,4 @@
+import { Admin, Consumer, Producer } from "kafkajs";
 import * as Kafka from "../kafka_client";
 
 const TOPIC_NAME = "test-topic-1";
@@ -7,10 +8,46 @@ const MESSAGE = {
 const CONSUMER_NAME = "test-group";
 
 describe("Kafka basic commands.", () => {
-  const client = Kafka.getClient();
+  let admin: Admin;
+  let producer: Producer;
+  let consumer: Consumer;
+
+  beforeAll(() => {
+    const client = Kafka.getClient();
+    admin = client.admin();
+    producer = client.producer();
+    consumer = client.consumer({ groupId: CONSUMER_NAME });
+  });
+  
+  afterAll(async () => {
+    await admin.disconnect();
+    await producer.disconnect();
+    await consumer.disconnect();
+  });
+
+  it("Should create a topic.", async () => {
+    const topicsMetadata = await admin.fetchTopicMetadata({ topics: [TOPIC_NAME] });
+    if (topicsMetadata.topics.length !== 0) return;
+
+    const createTopicsConfig = {
+      validateOnly: false,
+      waitForLeaders: true,
+      topics: [
+        {
+          topic: TOPIC_NAME,
+          numPartitions: 1,
+          replicationFactor: 1,
+        },
+      ],
+    };
+
+    await admin.connect();
+    const response = await admin.createTopics(createTopicsConfig);
+
+    expect(response).toBeTruthy();
+  });
 
   it("Should create a producer and send a message.", async () => {
-    const producer = client.producer();
     await producer.connect();
 
     const response = await producer.send({
@@ -22,8 +59,6 @@ describe("Kafka basic commands.", () => {
   });
 
   it("Should consume messages.", async () => {
-    const consumer = client.consumer({ groupId: CONSUMER_NAME });
-
     await consumer.connect();
     await consumer.subscribe({
       topic: TOPIC_NAME,
