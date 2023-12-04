@@ -64,10 +64,23 @@ describe("Kafka basic commands.", () => {
     const response = await producer.send({
       topic: TOPIC_NAME,
       compression: CompressionTypes.GZIP,
+      /**	Control the number of required acks.
+        -1 = all insync replicas must acknowledge (default)
+        0 = no acknowledgments
+        1 = only waits for the leader to acknowledge */
+      acks: 1,
+      // The time to await a response in ms
+      timeout: 4000,
       messages: [
         {
+          // Used for partitioning. See: https://kafka.js.org/docs/producing#message-key
           key: uuidv4(),
+          partition: 0,
           ...MESSAGE,
+          headers: {
+            "correlation-id": uuidv4(),
+            "system-id": "my-system-name",
+          },
         },
       ],
     });
@@ -83,6 +96,7 @@ describe("Kafka basic commands.", () => {
         messages: [
           {
             key: uuidv4(),
+            partition: i % 2 == 0 ? 0 : 1,
             ...MESSAGE,
           },
         ],
@@ -95,20 +109,39 @@ describe("Kafka basic commands.", () => {
     expect(response).toBeTruthy();
   });
 
-  it("Should consume messages.", async () => {
-    await consumer.subscribe({
-      topic: TOPIC_NAME,
-      fromBeginning: true,
-    });
+  const testTimeout = 5000; // 60 secs for debugging.
+  it(
+    "Should consume messages.",
+    async () => {
+      /** Consumer groups allow a group of machines or processes to coordinate access to a list of topics, distributing the load among the consumers.
+       * When a consumer fails the load is automatically distributed to other members of the group. */
+      // Read more: https://kafka.js.org/docs/consuming
+      await consumer.subscribe({
+        topic: TOPIC_NAME, // you can subscribe to any topic that matches a regular expression.
+        // Indicated whether to process the messages from the top of the topic.
+        // fromBeginning: true,
+      });
 
-    await consumer.run({
-      eachMessage: async ({ topic, partition, message }) => {
-        expect(topic).toBe(TOPIC_NAME);
-        expect(partition).toBeTruthy();
+      await consumer.run({
+        /** The eachMessage handler provides a convenient and easy to use API, feeding your function one message at a time.
+         * It is implemented on top of eachBatch, and it will automatically commit your offsets and heartbeat at the configured interval for you.
+         * Be aware that the eachMessage handler should not block for longer than the configured session timeout or else the consumer will be removed from the group.
+         * If your workload involves very slow processing times for individual messages then you should either increase the session timeout or make periodic use of
+         * the heartbeat function exposed in the handler payload. The pause function is a convenience for consumer.pause({ topic, partitions: [partition] }).
+         * It will pause the current topic-partition and returns a function that allows you to resume consuming later. */
+        eachMessage: async ({ topic, partition, message }) => {
+          expect(topic).toBe(TOPIC_NAME);
+          expect(partition).toBeGreaterThanOrEqual(0);
 
-        const content = message.value;
-        expect(content).toBeTruthy();
-      },
-    });
-  });
+          const key = message.key?.toString();
+          key ? expect(key).toBeTruthy() : expect(key).toBeFalsy();
+          const content = message.value?.toString();
+          expect(content).toBeTruthy();
+        },
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, testTimeout));
+    },
+    testTimeout * 2
+  );
 });
